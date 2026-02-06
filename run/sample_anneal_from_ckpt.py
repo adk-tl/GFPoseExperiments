@@ -1,6 +1,7 @@
-"""Minimal script to sample a random pose and anneal with a denoising model."""
+"""Minimal script to sample a dataset pose and anneal with a denoising model."""
 
 import os
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -13,6 +14,7 @@ from ml_collections.config_flags import config_flags
 from lib.algorithms.advanced.model import ScoreModelFC_Adv
 from lib.algorithms.advanced import sde_lib, sampling
 from lib.algorithms.ema import ExponentialMovingAverage
+from lib.dataset.h36m import H36MDataset3D, denormalize_data, normalize_data
 
 FLAGS = flags.FLAGS
 config_flags.DEFINE_config_file(
@@ -28,11 +30,11 @@ CONDITION_DIM = 3
 
 
 def parse_args(argv):
-    parser = argparse_flags.ArgumentParser(description="anneal a random pose")
+    parser = argparse_flags.ArgumentParser(description="anneal a dataset pose")
     parser.add_argument("--ckpt-dir", type=str, required=True)
     parser.add_argument("--steps", type=int, default=1000)
     parser.add_argument("--batch", type=int, default=1)
-    parser.add_argument("--std", type=float, default=100.0)
+    parser.add_argument("--std", type=float, default=10.0)
     parser.add_argument("--output", type=str, default="anneal_samples.npz")
     parser.add_argument("--best", action="store_true")
     return parser.parse_args(argv[1:])
@@ -95,13 +97,27 @@ def main(args):
     model.eval()
     ema.copy_to(model.parameters())
 
-    # Create the random pose (zero mean Gaussian, std=100, independent per coordinate).
-    random_pose = np.random.normal(
-        loc=0.0, scale=args.std, size=(args.batch, N_JOINTS, JOINT_DIM)
-    ).astype(np.float32)
+    # Load poses from the dataset and add zero-mean Gaussian noise (std=10).
+    dataset = H36MDataset3D(
+        Path("data", "h36m"),
+        "test",
+        gt2d=True,
+        read_confidence=False,
+        sample_interval=None,
+        flip=False,
+        cond_3d_prob=0,
+    )
+    replace = args.batch > len(dataset.db_3d)
+    indices = np.random.choice(len(dataset.db_3d), size=args.batch, replace=replace)
+    base_pose = dataset.db_3d[indices]
+    base_pose = denormalize_data(base_pose)
+    noise = np.random.normal(loc=0.0, scale=args.std, size=base_pose.shape).astype(
+        np.float32
+    )
+    noisy_pose = normalize_data(base_pose + noise).astype(np.float32)
 
     # Scale to the model space used during training.
-    denoise_x = torch.tensor(random_pose, device=device) * config.training.data_scale
+    denoise_x = torch.tensor(noisy_pose, device=device) * config.training.data_scale
     condition = torch.zeros_like(denoise_x)
 
     # Setup the SDE and sampling function.
