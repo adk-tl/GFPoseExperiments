@@ -15,6 +15,7 @@ from lib.algorithms.advanced.model import ScoreModelFC_Adv
 from lib.algorithms.advanced import sde_lib, sampling
 from lib.algorithms.ema import ExponentialMovingAverage
 from lib.dataset.h36m import H36MDataset3D, denormalize_data, normalize_data
+from lib.utils.transforms import align_to_gt
 
 FLAGS = flags.FLAGS
 config_flags.DEFINE_config_file(
@@ -37,6 +38,11 @@ def parse_args(argv):
     parser.add_argument("--std", type=float, default=10.0)
     parser.add_argument("--output", type=str, default="anneal_samples.npz")
     parser.add_argument("--best", action="store_true")
+    parser.add_argument(
+        "--align-to-base",
+        action="store_true",
+        help="Apply Procrustes alignment to the original (normalized) pose to reduce scale drift.",
+    )
     return parser.parse_args(argv[1:])
 
 
@@ -110,6 +116,7 @@ def main(args):
     replace = args.batch > len(dataset.db_3d)
     indices = np.random.choice(len(dataset.db_3d), size=args.batch, replace=replace)
     base_pose = dataset.db_3d[indices]
+    base_pose_norm = base_pose.copy()
     base_pose = denormalize_data(base_pose)
     noise = np.random.normal(loc=0.0, scale=args.std, size=base_pose.shape).astype(
         np.float32
@@ -145,6 +152,12 @@ def main(args):
 
     # Convert back to unscaled coordinates and save each step with key `step_N`.
     trajs = trajs / config.training.data_scale
+    if args.align_to_base:
+        for t_idx in range(trajs.shape[0]):
+            for b_idx in range(trajs.shape[1]):
+                trajs[t_idx, b_idx] = align_to_gt(
+                    pose=trajs[t_idx, b_idx], pose_gt=base_pose_norm[b_idx]
+                )
     save_dict = {f"step_{idx}": trajs[idx] for idx in range(trajs.shape[0])}
     np.savez(args.output, **save_dict)
     print(f"saved annealing trajectory to {args.output}")
