@@ -145,5 +145,7 @@ def align_to_gt(pose, pose_gt):
 
     Use MLE.
     """
-    return procrustes(pose_gt, pose)[1]
+    p = procrustes(pose_gt, pose)
+    #print("scale:",p[2]['scale'])
+    return p[1]
 
