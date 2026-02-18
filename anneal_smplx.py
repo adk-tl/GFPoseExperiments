@@ -252,7 +252,7 @@ def anneal_smplx_pose(
     finally:
         ema.restore(score_model.parameters())
 
-    post_anneal = (trajs[-1] / data_scale).detach().cpu().numpy().astype(np.float32)
+    post_anneal = (trajs[-1] / data_scale).astype(np.float32)
     for idx in range(batch_size):
         post_anneal[idx] = procrustes(pre_anneal[idx], post_anneal[idx], reflection=False)[1]
 
