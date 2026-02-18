@@ -3,4 +3,4 @@
 Set SMPLX_MODEL_PATH to the directory that contains the SMPL-X model files.
 """
 
-SMPLX_MODEL_PATH = ""  # Fill in your local SMPL-X model directory.
+SMPLX_MODEL_PATH = "/usr/share/smpl_assets/models"
