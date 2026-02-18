@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import argparse
-import importlib.util
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Dict, List
 
 import numpy as np
 import torch
+from absl import app
+from absl import flags
+from absl.flags import argparse_flags
+from ml_collections.config_flags import config_flags
 
 import smplx
 from lib.algorithms.advanced import sampling, sde_lib
@@ -18,6 +20,13 @@ from lib.algorithms.ema import ExponentialMovingAverage
 from lib.dataset.h36m import normalize_data
 from lib.utils.transforms import procrustes
 from smpl_config import SMPLX_MODEL_PATH
+
+
+FLAGS = flags.FLAGS
+config_flags.DEFINE_config_file(
+    "config", None, "Training configuration.", lock_config=False
+)
+flags.mark_flags_as_required(["config"])
 
 
 # Map H36M 17-joint order used by this repository to SMPL-X body joints.
@@ -70,19 +79,6 @@ JOINT_DIM = 3
 HIDDEN_DIM = 1024
 EMBED_DIM = 512
 CONDITION_DIM = 3
-
-
-def load_config_from_py(config_path: str):
-    """Load a config object from a python config file exposing get_config()."""
-    path = Path(config_path)
-    spec = importlib.util.spec_from_file_location(path.stem, path)
-    if spec is None or spec.loader is None:
-        raise ValueError(f"Could not load config module from {config_path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    if not hasattr(module, "get_config"):
-        raise ValueError(f"Config module {config_path} does not define get_config()")
-    return module.get_config()
 
 
 def load_score_and_ema(config, checkpoint_path: str, device: torch.device):
@@ -268,19 +264,19 @@ def save_step0_npz(path: str, joints: np.ndarray) -> None:
     np.savez(path, step_0=joints.astype(np.float32))
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Anneal a zero-angle SMPL-X pose into GF-Pose space")
-    parser.add_argument("--config", type=str, required=True, help="Path to a python config with get_config().")
+def parse_args(argv) -> argparse.Namespace:
+    parser = argparse_flags.ArgumentParser(
+        description="Anneal a zero-angle SMPL-X pose into GF-Pose space"
+    )
     parser.add_argument("--ckpt-path", type=str, required=True, help="Checkpoint path with model and EMA states.")
     parser.add_argument("--steps", type=int, default=10, help="Annealing steps.")
-    return parser.parse_args()
+    return parser.parse_args(argv[1:])
 
 
-def main() -> None:
-    args = parse_args()
+def main(args) -> None:
+    config = FLAGS.config
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    config = load_config_from_py(args.config)
     smplx_model = load_smplx_model()
     score_model, ema = load_score_and_ema(config, args.ckpt_path, device=device)
 
@@ -298,4 +294,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    app.run(main, flags_parser=parse_args)
